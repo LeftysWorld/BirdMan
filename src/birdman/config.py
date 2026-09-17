@@ -31,9 +31,9 @@ ENV_FILE = ROOT / ".env"
 for _d in (ART, INBOX, STATE, HISTORY, OUT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
-W, H = 800, 480                         # Inky Impression 7.3"
+W, H = 480, 800                         # Inky Impression 7.3", hung upright (portrait)
 
 GEMINI_MODEL = "gemini-3.1-flash-image"
 
-DEMO_BIRDS = ["Northern Cardinal", "Carolina Chickadee", "Blue Jay",
-              "Tufted Titmouse", "Carolina Wren", "Mourning Dove"]
+DEMO_BIRDS = ["Northern Cardinal", "Carolina Chickadee", "Blue Jay", "Tufted Titmouse",
+              "Carolina Wren", "Mourning Dove", "Red-bellied Woodpecker", "Northern Parula"]

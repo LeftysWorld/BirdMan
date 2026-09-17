@@ -30,15 +30,20 @@ MAX_BIRDS = 15
 MARGIN = 28                 # paper left/right of the cluster
 HEADER_H = 94               # date + title live above this line
 CAPTION_LINE_H = 19
-CAPTION_MAX_LINES = 3
+CAPTION_MAX_LINES = 3 if W > H else 4     # a narrow portrait frame wraps sooner
 CAPTION_PAD = 20            # paper below the caption
 
 GAP = 6                     # px of paper between neighbouring birds
 SMALL = (0.50, 0.64)        # supporting birds, relative to the hero
-HERO_MAX = 0.80             # hero never taller/wider than this share of field height
-FILL = 0.80                 # optimistic first guess at how much field the flock can cover
+HERO_MAX = 0.60             # hero never taller/wider than this share of field height,
+                            # which leaves room for birds above and below it
+HERO_MAX_FEW = 0.85         # ...but with three birds or fewer nobody sits above it, so let it grow
+ASPECT = 1.15 if W > H else 1.0           # cluster shape, width / height. 1.0 is round;
+                            # about 2.3 stretches it across a landscape field (the old look)
+FILL = 1.40                 # deliberately too big a first guess: the flock then shrinks
+                            # step by step until it just fits, so it is as large as it can be
 SHRINK = 0.93               # scale step when a pack attempt fails
-REACH = 0.92                # how far (0..1 of the field ellipse) a bird's centre may sit
+REACH = 0.90                # how far (0..1 of the cluster ellipse) a bird's centre may sit
 ANGLE_PULL = 0.30           # 0 = pure closest-to-centre, higher = more even ring
 GOLDEN = math.pi * (3 - math.sqrt(5))
 
@@ -182,6 +187,13 @@ def _fast_len(n: int) -> int:
         n += 1
 
 
+def _cluster_radii(fw: int, fh: int) -> tuple[float, float]:
+    """Half-width and half-height of the ellipse the flock is packed into: the largest one
+    with the ASPECT shape that fits the field, whichever way up the frame hangs."""
+    height = min(fh, fw / ASPECT)
+    return ASPECT * height / 2, height / 2
+
+
 def _try_pack(plan: list[BirdPlan], hero_px: float, fw: int, fh: int) -> list[Placement] | None:
     """Place every bird in `plan` inside an fw x fh field. None if something won't fit."""
     shape = (_fast_len(fh), _fast_len(fw))
@@ -198,8 +210,11 @@ def _try_pack(plan: list[BirdPlan], hero_px: float, fw: int, fh: int) -> list[Pl
 
         # where would this bird's centre of mass land, for every possible top-left?
         ys, xs = np.nonzero(body)
-        gx = (np.arange(fw - hw + 1) + xs.mean() + GAP - fw / 2) / (fw / 2)
-        gy = (np.arange(fh - hh + 1) + ys.mean() + GAP - fh / 2) / (fh / 2)
+        # distances are measured on the cluster ellipse (see _cluster_radii), not on
+        # the field rectangle - otherwise a wide field stretches the flock into a row
+        rx, ry = _cluster_radii(fw, fh)
+        gx = (np.arange(fw - hw + 1) + xs.mean() + GAP - fw / 2) / rx
+        gy = (np.arange(fh - hh + 1) + ys.mean() + GAP - fh / 2) / ry
         r = np.hypot(gx[None, :], gy[:, None])
 
         if i == 0:
@@ -250,7 +265,9 @@ def _compose(names: list[str], day: str, field) -> list[Placement]:
         plan.append(BirdPlan(nm, scale, flip, theta0 + k * GOLDEN))
 
     mean_small_area = ((SMALL[0] + SMALL[1]) / 2) ** 2
-    hero = min(HERO_MAX * fh, math.sqrt(FILL * fw * fh / (1 + (n - 1) * mean_small_area)))
+    rx, ry = _cluster_radii(fw, fh)
+    cap = (HERO_MAX_FEW if n <= 3 else HERO_MAX) * 2 * ry
+    hero = min(cap, math.sqrt(FILL * math.pi * rx * ry / (1 + (n - 1) * mean_small_area)))
 
     placed = None
     for _ in range(40):
