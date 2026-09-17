@@ -1,7 +1,7 @@
 import sys
 from birdman.config import OUT, DEMO_BIRDS
-from birdman.collage import build_collage
-from birdman.eink import render
+from birdman.steps.collage import build_collage
+from birdman.steps.eink import render
 
 PREVIEW = OUT.with_name(OUT.stem + "_preview.png")
 
@@ -9,7 +9,7 @@ def main():
     if "--demo" in sys.argv:
         names = DEMO_BIRDS
     else:
-        from birdman.detect import detect_species
+        from birdman.steps.detect import detect_species
         names = detect_species()
     if not names:
         sys.exit("no detections above threshold")

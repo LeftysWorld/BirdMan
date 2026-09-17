@@ -9,14 +9,14 @@ inbox/; later the microphone recorder writes there instead and nothing here chan
 import argparse
 import time
 
-from birdman.art import art_path
+from birdman.steps.illustrate import art_path
 from birdman.clock import now
 from birdman.config import INBOX, HISTORY, OUT
-from birdman.detect import detect_clip, AUDIO_EXT
-from birdman.heard import Heard
-from birdman.collage import build_collage, MAX_BIRDS
-from birdman.eink import render
-from birdman.panel import push_to_panel
+from birdman.steps.detect import detect_clip, AUDIO_EXT
+from birdman.state import Heard
+from birdman.steps.collage import build_collage, MAX_BIRDS
+from birdman.steps.eink import render
+from birdman.steps.panel import push_to_panel
 
 PREVIEW = OUT.with_name(OUT.stem + "_preview.png")
 LIVE = OUT.with_name("live.html")

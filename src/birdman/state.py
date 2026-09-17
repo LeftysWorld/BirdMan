@@ -1,7 +1,9 @@
 """Today's list of heard species, kept on disk so a restart or reboot loses nothing."""
 import json
+
 from birdman.clock import now, today
 from birdman.config import STATE
+from birdman.records import Detection, SpeciesRecord
 
 FILE = STATE / "heard.json"
 
@@ -9,15 +11,17 @@ FILE = STATE / "heard.json"
 class Heard:
     def __init__(self, fresh: bool = False):
         self.day = today()
-        self.species: dict[str, dict] = {}
+        self.species: dict[str, SpeciesRecord] = {}
         if not fresh and FILE.exists():
             try:
                 data = json.loads(FILE.read_text())
                 if data["day"] == self.day:             # yesterday's list is simply dropped
-                    self.species = dict(data["species"])
-            except (ValueError, KeyError, TypeError):   # power cut mid-write, hand edits...
+                    self.species = {name: SpeciesRecord.from_json(name, d)
+                                    for name, d in data["species"].items()}
+            except (ValueError, KeyError, TypeError, AttributeError):   # power cut mid-write, hand edits...
                 bad = FILE.with_name("heard.corrupt.json")
                 FILE.replace(bad)
+                self.species = {}
                 print(f"state file was unreadable - starting the day fresh (kept as {bad.name})")
         self._save()
 
@@ -29,26 +33,28 @@ class Heard:
         self._save()
         return True
 
-    def add(self, found: dict[str, float]) -> list[str]:
+    def add(self, detections: list[Detection]) -> list[str]:
         """Record one clip's detections. Returns the species that are new today."""
         self.roll_over()
-        stamp = now().isoformat(timespec="seconds")
+        when = now().replace(microsecond=0)
         new = []
-        for name, conf in found.items():
-            s = self.species.get(name)
-            if s is None:
-                self.species[name] = {"first": stamp, "last": stamp, "conf": conf, "count": 1}
-                new.append(name)
+        for d in detections:
+            record = self.species.get(d.species)
+            if record is None:
+                self.species[d.species] = SpeciesRecord(d.species, when, when, d.confidence)
+                new.append(d.species)
             else:
-                s.update(last=stamp, conf=max(conf, s["conf"]), count=s["count"] + 1)
+                record.heard_again(when, d.confidence)
         self._save()
         return new
 
     def names(self) -> list[str]:
         """Arrival order: the first bird of the day is the hero, later birds join the flock."""
-        return sorted(self.species, key=lambda n: self.species[n]["first"])
+        return sorted(self.species, key=lambda n: self.species[n].first_heard)
 
     def _save(self):
         tmp = FILE.with_suffix(".tmp")
-        tmp.write_text(json.dumps({"day": self.day, "species": self.species}, indent=2))
+        tmp.write_text(json.dumps(
+            {"day": self.day, "species": {n: r.to_json() for n, r in self.species.items()}},
+            indent=2))
         tmp.replace(FILE)

@@ -14,13 +14,15 @@ cross-correlation, so a full pack is a handful of FFTs rather than thousands of 
 """
 import math
 import random
+from dataclasses import dataclass
 from functools import lru_cache
 
 import numpy as np
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageFilter
 
 from birdman.config import W, H, FONT_REG, FONT_ITA
-from birdman.art import bird_image, cutout
+from birdman.steps.illustrate import bird_image
+from birdman.steps.cutout import cutout
 from birdman.clock import now, today
 
 # ---- layout knobs -----------------------------------------------------------------
@@ -138,6 +140,35 @@ def _masks(img: Image.Image) -> tuple[np.ndarray, np.ndarray]:
     return np.array(a) > 0, halo
 
 
+# ---- layout records (private to this step) ----------------------------------------
+@dataclass(frozen=True)
+class BirdPlan:
+    """How one bird should appear today, decided before any packing is attempted."""
+    name: str
+    scale: float            # size relative to the hero (the hero is 1.0)
+    flip: bool              # face right instead of left
+    bearing: float          # preferred compass direction from the hero, in radians
+
+
+@dataclass(frozen=True)
+class Placement:
+    """A finished sprite and where its top-left corner goes."""
+    sprite: Image.Image
+    x: int
+    y: int
+
+    @property
+    def right(self) -> int:
+        return self.x + self.sprite.width
+
+    @property
+    def bottom(self) -> int:
+        return self.y + self.sprite.height
+
+    def moved(self, dx: int, dy: int) -> "Placement":
+        return Placement(self.sprite, self.x + dx, self.y + dy)
+
+
 # ---- packing ----------------------------------------------------------------------
 def _fast_len(n: int) -> int:
     """Next size whose only prime factors are 2, 3, 5 (keeps the FFT quick)."""
@@ -151,13 +182,13 @@ def _fast_len(n: int) -> int:
         n += 1
 
 
-def _try_pack(plan, hero_px: float, fw: int, fh: int):
+def _try_pack(plan: list[BirdPlan], hero_px: float, fw: int, fh: int) -> list[Placement] | None:
     """Place every bird in `plan` inside an fw x fh field. None if something won't fit."""
     shape = (_fast_len(fh), _fast_len(fw))
     occ = np.zeros((fh, fw), dtype=bool)
     placed = []
-    for i, (name, rel, flip, theta) in enumerate(plan):
-        img = _sprite(name, max(8, int(hero_px * rel)), flip)
+    for i, bird in enumerate(plan):
+        img = _sprite(bird.name, max(8, int(hero_px * bird.scale)), bird.flip)
         body, halo = _masks(img)
         if not body.any():
             continue
@@ -175,7 +206,7 @@ def _try_pack(plan, hero_px: float, fw: int, fh: int):
             cost = r
         else:
             bearing = np.arctan2(gy[:, None], gx[None, :])
-            cost = r * (1 + ANGLE_PULL * (1 - np.cos(bearing - theta)))
+            cost = r * (1 + ANGLE_PULL * (1 - np.cos(bearing - bird.bearing)))
             # overlap[y, x] = how many occupied pixels the halo would cover at (x, y)
             overlap = np.fft.irfft2(
                 np.fft.rfft2(occ.astype(np.float64), shape)
@@ -190,7 +221,7 @@ def _try_pack(plan, hero_px: float, fw: int, fh: int):
             return None
         x, y = x + GAP, y + GAP                 # halo offset -> sprite offset
         occ[y:y + body.shape[0], x:x + body.shape[1]] |= body
-        placed.append((img, x, y))
+        placed.append(Placement(img, x, y))
     return placed
 
 
@@ -200,8 +231,8 @@ def _traits(name: str, day: str) -> tuple[float, bool]:
     return r.uniform(*SMALL), r.random() < 0.5
 
 
-def _compose(names: list[str], day: str, field):
-    """Returns [(sprite, x, y)] in canvas coordinates.
+def _compose(names: list[str], day: str, field) -> list[Placement]:
+    """Returns the placed birds in canvas coordinates.
 
     `names` is in arrival order: names[0] is the hero, later birds are placed in the order
     they were first heard. Every random choice is keyed to (day, name) or to arrival
@@ -213,10 +244,10 @@ def _compose(names: list[str], day: str, field):
     n = len(names)
 
     theta0 = random.Random(day).uniform(0, 2 * math.pi)
-    plan = [(names[0], 1.0, _traits(names[0], day)[1], 0.0)]
+    plan = [BirdPlan(names[0], 1.0, _traits(names[0], day)[1], 0.0)]
     for k, nm in enumerate(names[1:]):
-        rel, flip = _traits(nm, day)
-        plan.append((nm, rel, flip, theta0 + k * GOLDEN))
+        scale, flip = _traits(nm, day)
+        plan.append(BirdPlan(nm, scale, flip, theta0 + k * GOLDEN))
 
     mean_small_area = ((SMALL[0] + SMALL[1]) / 2) ** 2
     hero = min(HERO_MAX * fh, math.sqrt(FILL * fw * fh / (1 + (n - 1) * mean_small_area)))
@@ -231,13 +262,13 @@ def _compose(names: list[str], day: str, field):
         return []
 
     # centre the finished cluster in the field
-    bx0 = min(x for _, x, _ in placed)
-    by0 = min(y for _, _, y in placed)
-    bx1 = max(x + b.width for b, x, _ in placed)
-    by1 = max(y + b.height for b, _, y in placed)
+    bx0 = min(p.x for p in placed)
+    by0 = min(p.y for p in placed)
+    bx1 = max(p.right for p in placed)
+    by1 = max(p.bottom for p in placed)
     ox = fx0 + (fw - (bx1 - bx0)) // 2 - bx0
     oy = fy0 + (fh - (by1 - by0)) // 2 - by0
-    return [(b, x + ox, y + oy) for b, x, y in placed]
+    return [p.moved(ox, oy) for p in placed]
 
 
 # ---- text -------------------------------------------------------------------------
@@ -319,8 +350,8 @@ def build_collage(names: list[str]) -> tuple[Image.Image, Image.Image]:
 
         drawable = [n for n in shown if bird_image(n) is not None]
         if drawable:
-            for bird, x, y in _compose(drawable, today(), field):
-                canvas.alpha_composite(bird, (x, y))
+            for p in _compose(drawable, today(), field):
+                canvas.alpha_composite(p.sprite, (p.x, p.y))
         _draw_caption(fd, lines, cap_f)
     else:
         _draw_quiet_day(fd)

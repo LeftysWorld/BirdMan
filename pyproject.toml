@@ -13,8 +13,8 @@ dependencies = [
 ]
 
 [project.scripts]
-birdman-watch = "birdman.watch:main"
-birdman-render = "birdman.render_once:main"
+birdman-watch = "birdman.app.watch:main"
+birdman-render = "birdman.app.render_once:main"
 
 [build-system]
 requires = ["hatchling"]
