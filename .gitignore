@@ -1,0 +1,37 @@
+# --- secrets ---
+.env
+.env.*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# --- runtime folders (recreated automatically by config.py) ---
+inbox/
+state/
+history/
+
+# --- generated output ---
+frame.png
+frame_preview.png
+live.html
+local_species.txt
+tmp.csv
+geo.csv
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# --- deliberately NOT ignored ---
+# cache/    Gemini art can't be regenerated identically, so keep it in git
+# clips/    small test library; ignore it later if it grows
+# fonts/    the layout depends on these exact files
+# uv.lock   keeps the Pi on the same package versions as your Mac
